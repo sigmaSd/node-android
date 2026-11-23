@@ -4,7 +4,7 @@
 # applies), nothing is published and an issue is opened instead.
 #
 # Run by hand (Actions → build → Run workflow) to build one version now, or to retry after fixing patches
-# (the version input: an existing release is replaced by deleting it first).
+# (to rebuild a version that already has a release, delete that release first).
 # Actions are pinned by commit (supply-chain safety), with their version in a comment.
 
 name: build
