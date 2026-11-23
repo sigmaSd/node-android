@@ -39,11 +39,31 @@ adb push node-v24.22.3-android-arm64/node /data/local/tmp/
 adb shell 'cd /data/local/tmp && TMPDIR=$PWD HOME=$PWD ./node -e "console.log(process.versions)"'
 ```
 
+## Tested
+
+v24.22.3 arm64 on a Xiaomi 2409BRN2CA (Android 16), run by an app (nodeapk's demo):
+
+- **Works**: `node:http` server on 127.0.0.1, `node:sqlite`, `crypto` (X25519, Ed25519, scrypt, WebCrypto),
+  `fetch` over HTTPS (bundled CA certificates), `dns.lookup`, `node:dgram` broadcast (send and receive),
+  `fs.watch`, `os.networkInterfaces()`, `child_process` (`/system/bin/sh`), `worker_threads`, full-ICU
+  `Intl`, `zlib` (gzip, brotli), TypeScript entry files (type stripping), uncaught errors on stderr.
+- **Android's limits**: `os.cpus()` returns `[]` (`/proc/stat` is closed to apps), MAC addresses in
+  `os.networkInterfaces()` are zeros.
+- **Doesn't work**: `dns.resolve*()` (c-ares) fails with `ECONNREFUSED`: with no `/etc/resolv.conf` it has
+  no DNS servers and tries 127.0.0.1. Use `dns.lookup` (what `http`, `fetch` and `net` use), or pass the
+  servers in with `dns.setServers()`.
+- **Startup**: `node -e 0` takes ~0.25 s on that phone.
+
+x64 hasn't been run yet.
+
 ## Known limits
 
 - Built with `--openssl-no-asm` (as Node's `android-configure` does): OpenSSL doesn't use the CPU's crypto
-  instructions, so AES/SHA are slower than on desktop Node.
-- No startup snapshot (it can't be generated while cross-compiling): startup is slower than desktop Node.
+  instructions; scrypt N=2^15 takes ~200 ms on the phone above.
+- No startup snapshot or built-in code cache (they can't be generated while cross-compiling): loading
+  built-in modules costs more at startup than on desktop Node.
+- Android's app freezers suspend an app's processes in the background, Node included: background work needs
+  a foreground service in the app.
 
 ## Building it yourself
 
