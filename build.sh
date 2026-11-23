@@ -99,7 +99,8 @@ if [ ! -f out/Release/build.ninja ]; then
       --without-npm --without-corepack
 fi
 
-PATH="$TOOLCHAIN/bin:$PATH" ninja -C out/Release -j "$JOBS" node
+# Not with the NDK on PATH: host clang would then link with the NDK's ld (lld), which fails on V8's libatomic use
+ninja -C out/Release -j "$JOBS" node
 
 NAME=node-v$VERSION-android-$ARCH
 STAGE=$WORK/$NAME
