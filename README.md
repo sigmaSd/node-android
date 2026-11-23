@@ -29,7 +29,7 @@ building.
 **Inside an app.** Android 10+ won't execute files from an app's data folder; ship `node` in the APK as
 `lib/<abi>/libnode.so` with `android:extractNativeLibs="true"`, and run it from
 `getApplicationInfo().nativeLibraryDir`. Set `HOME` and `TMPDIR` to the app's folders: Android has no `/tmp`.
-This is what nodeapk (an APK packager for Node apps, in the works) does.
+This is what [nodeapk](https://github.com/sigmaSd/nodeapk) does (it packs a Node app into an APK).
 
 **Over adb**, to try it:
 
