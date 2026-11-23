@@ -1,0 +1,17 @@
+--- a/src/debug_utils.cc
++++ b/src/debug_utils.cc
+@@ -530,12 +530,9 @@
+ 
+   WriteConsoleW(handle, wbuf.data(), n, nullptr, nullptr);
+   return;
+-#elif defined(__ANDROID__)
+-  if (file == stderr) {
+-    __android_log_print(ANDROID_LOG_ERROR, "nodejs", "%s", str.data());
+-    return;
+-  }
+ #endif
++  // nodeapk: Node runs as a child process whose stderr the app reads, so
++  // stderr stays stderr instead of going to logcat.
+   simple_fwrite();
+ }
+ 

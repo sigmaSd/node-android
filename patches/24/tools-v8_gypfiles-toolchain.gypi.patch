@@ -1,0 +1,23 @@
+--- a/tools/v8_gypfiles/toolchain.gypi
++++ b/tools/v8_gypfiles/toolchain.gypi
+@@ -68,7 +68,7 @@
+     'mips_use_msa%': 0,
+ 
+     # Print to stdout on Android.
+-    'v8_android_log_stdout%': 0,
++    'v8_android_log_stdout%': 1,
+ 
+     'v8_enable_backtrace%': 0,
+ 
+@@ -282,11 +282,6 @@
+         'defines': [
+           'V8_TARGET_ARCH_ARM64',
+         ],
+-        'conditions': [
+-          ['v8_control_flow_integrity==1', {
+-            'cflags': [ '-mbranch-protection=standard' ],
+-          }],
+-        ],
+       }],
+       ['v8_target_arch=="riscv64"', {
+         'defines': [

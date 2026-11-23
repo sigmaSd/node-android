@@ -1,0 +1,138 @@
+# Follows Node's releases on its own: once a day, scripts/pending.sh lists the newest release of every
+# supported major (a patches/<major>/ folder) that has no release here yet; each is built for arm64 and x64
+# and published as a GitHub release named v<version>. If a build fails (typically a patch that no longer
+# applies), nothing is published and an issue is opened instead.
+#
+# Run by hand (Actions → build → Run workflow) to build one version now, or to retry after fixing patches.
+# Actions are pinned by commit (supply-chain safety), with their version in a comment.
+
+name: build
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Node version to build, e.g. 24.22.3 (empty: whatever is pending)"
+        required: false
+
+# One build at a time: a daily check that starts while a build runs waits, then sees its release
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      versions: ${{ steps.pending.outputs.versions }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then
+            versions=$(jq -cn --arg v "${VERSION#v}" '[$v]')
+          else
+            versions=$(scripts/pending.sh)
+          fi
+          echo "to build: $versions"
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: check
+    if: needs.check.outputs.versions != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.check.outputs.versions) }}
+        arch: [arm64, x64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Node's configure accepts Python 3.9 to 3.14
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Make room (the build tree and the NDK take ~15 GB)
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/lib/node_modules /opt/hostedtoolcache/CodeQL
+      - name: Install ninja, clang and the NDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang
+          ndk=$(sed -n 's/^NDK_VERSION=//p' build.sh)
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$ndk" > /dev/null
+      - name: Build
+        run: JOBS=$(nproc) ./build.sh ${{ matrix.version }} ${{ matrix.arch }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: node-${{ matrix.version }}-${{ matrix.arch }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    needs: [check, build]
+    if: ${{ !cancelled() && needs.check.outputs.versions != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.check.outputs.versions) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: node-${{ matrix.version }}-*
+          path: files
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          # both architectures or nothing
+          for arch in arm64 x64; do
+            [ -f "files/node-v$VERSION-android-$arch.tar.xz" ] || { echo "no $arch build of $VERSION"; exit 1; }
+          done
+          {
+            echo "Node v$VERSION for Android, one self-contained executable per architecture (\`node\` in each archive)."
+            echo
+            echo '```'
+            for arch in arm64 x64; do
+              tar -xOJf "files/node-v$VERSION-android-$arch.tar.xz" "node-v$VERSION-android-$arch/BUILD-INFO"
+              echo
+            done
+            echo '```'
+          } > notes.md
+          gh release create "v$VERSION" --title "Node v$VERSION for Android" --notes-file notes.md files/*
+
+  report:
+    needs: [check, build, release]
+    if: failure()
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - name: Open (or update) an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSIONS: ${{ needs.check.outputs.versions }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Automatic build failed"
+          body="Building $VERSIONS failed: $RUN"
+          existing=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then gh issue comment "$existing" --body "$body"
+          else gh issue create --title "$title" --body "$body"; fi
