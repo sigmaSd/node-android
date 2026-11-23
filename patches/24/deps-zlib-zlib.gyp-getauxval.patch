@@ -1,0 +1,20 @@
+--- a/deps/zlib/zlib.gyp
++++ b/deps/zlib/zlib.gyp
+@@ -73,7 +73,7 @@
+                   'cflags': [ '-march=armv8-a+aes+crc' ],
+                 }],
+                 ['OS=="android"', {
+-                  'defines': [ 'ARMV8_OS_ANDROID' ],
++                  'defines': [ 'ARMV8_OS_LINUX' ],  # node-android: getauxval, not the NDK's cpufeatures
+                 }],
+                 ['OS=="linux" or OS=="openharmony"', {
+                   'defines': [ 'ARMV8_OS_LINUX' ],
+@@ -91,7 +91,7 @@
+                 'defines': [ 'CRC32_ARMV8_CRC32' ],
+                 'conditions': [
+                   ['OS=="android"', {
+-                    'defines': [ 'ARMV8_OS_ANDROID' ],
++                    'defines': [ 'ARMV8_OS_LINUX' ],  # node-android: getauxval, not the NDK's cpufeatures
+                   }],
+                   ['OS=="linux" or OS=="openharmony"', {
+                     'defines': [ 'ARMV8_OS_LINUX' ],

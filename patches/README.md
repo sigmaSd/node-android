@@ -1,7 +1,7 @@
 # Patches
 
 `build.sh` applies `patches/<major>/*.patch` in order (by file name) to the Node source. The `24/` set was
-written against Node 24.22.3. All but one come from Termux's `nodejs-lts` package
+written against Node 24.22.3. All but two come from Termux's `nodejs-lts` package
 (https://github.com/termux/termux-packages/tree/master/packages/nodejs-lts), which builds that same version.
 Termux's patches that only matter to Termux (its prefix instead of `/tmp`, `/system/bin/sh`, system
 ICU/OpenSSL, its `getaddrinfo` workaround) are left out: this build bundles Node's own dependencies, and
@@ -12,6 +12,7 @@ whoever starts Node sets `TMPDIR`.
 | `avoid-ficlone-ioctl.patch` | Termux | `fs.copyFile` with `COPYFILE_FICLONE` must not try the FICLONE ioctl on Android |
 | `deps-uvwasi-src-uvwasi.c.patch` | Termux | enables WASI `fd_readdir` on Android (bionic has `seekdir`/`telldir`) |
 | `deps-v8-src-trap-handler-trap-handler.h.patch` | Termux (Node ships the same idea in `android-patches/`, but for an older V8) | WebAssembly's trap handler is off on Android (V8 refuses it there); without this, the host tools built for the arm64 simulator turn it on and trip that check |
+| `deps-zlib-zlib.gyp-getauxval.patch` | node-android | Node's bundled zlib detects CRC32/PMULL on Android with the NDK's old `cpufeatures` library, which nothing builds (link error); bionic's `getauxval`, as on Linux, does the same |
 | `fix_multiple_definitions.patch` | Termux | libuv defines `uv_get_free_memory` twice on Android (link error) |
 | `src-debug_utils.cc-stderr.patch` | node-android | Node sends its own stderr messages (fatal errors…) to logcat on Android; a parent process (an app shell, `adb shell`) reads Node's stderr, so they stay on stderr |
 | `src-node_internals.h.patch` | Termux | `process.getuid()`, `getgid()`… exist on Android too |
