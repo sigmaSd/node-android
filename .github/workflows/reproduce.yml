@@ -1,0 +1,85 @@
+# Rebuilds a published release from source somewhere else (Debian, the base of F-Droid's build server, not
+# the Ubuntu runner that built it) and compares the executable with the published one, byte for byte. An app
+# store that builds from source (F-Droid) can then ship the same bytes as the release, signed by the app's
+# own key.
+#
+# Node embeds one build path (OpenSSL's MODULESDIR, under WORK): the rebuild uses the release workflow's.
+# On a difference, the log shows which ELF sections differ, without downloading 90 MB binaries.
+# Actions are pinned by commit (supply-chain safety), with their version in a comment.
+
+name: reproduce
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Released Node version to rebuild, e.g. 24.22.3"
+        required: true
+      arch:
+        description: "arm64 or x64"
+        required: true
+        default: arm64
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Make room (the build tree and the NDK take ~15 GB)
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/lib/node_modules /opt/hostedtoolcache/CodeQL
+      - name: The published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ inputs.arch }}
+        run: |
+          mkdir published
+          gh release download "v${VERSION#v}" -R "$GITHUB_REPOSITORY" -D published -p "node-v${VERSION#v}-android-$ARCH.tar.xz*"
+          (cd published && sha256sum -c ./*.sha256 && tar -xJf ./*.tar.xz)
+      - name: Rebuild in Debian
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ inputs.arch }}
+        run: |
+          ndk=$(sed -n 's/^NDK_VERSION=//p' build.sh)
+          docker run --rm -v "$PWD:/src" -w /src -e VERSION -e ARCH -e NDK_VERSION="$ndk" debian:trixie bash -euxc '
+            apt-get update
+            apt-get install -y --no-install-recommends clang ninja-build python3 gpgv curl ca-certificates \
+              xz-utils unzip patch make
+            # the NDK, from the same release the SDK manager installs
+            release=r$(echo "$NDK_VERSION" | cut -d. -f1)
+            curl -fsSL -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-$release-linux.zip"
+            unzip -q /tmp/ndk.zip -d /opt
+            grep -q "Pkg.Revision = $NDK_VERSION" /opt/android-ndk-$release/source.properties
+            # the path the release workflow built in: Node keeps it (OpenSSL MODULESDIR)
+            WORK=/home/runner/work/node-android/node-android/work NDK=/opt/android-ndk-$release JOBS=$(nproc) \
+              ./build.sh "$VERSION" "$ARCH"
+            cp /opt/android-ndk-$release/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf \
+              /opt/android-ndk-$release/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy /src/out/
+            chmod -R a+rwX /src/out
+          '
+          tar -C out -xJf "out/node-v${VERSION#v}-android-$ARCH.tar.xz"
+      - name: Compare
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ inputs.arch }}
+        run: |
+          name="node-v${VERSION#v}-android-$ARCH"
+          a="published/$name/node" b="out/$name/node"
+          sha256sum "$a" "$b"
+          if cmp -s "$a" "$b"; then echo "identical: the release rebuilds bit for bit"; exit 0; fi
+          echo "differs: $(cmp -l "$a" "$b" | wc -l) bytes"
+          for f in "$a" "$b"; do
+            mkdir -p "sections/$(dirname "$f" | cut -d/ -f1)"
+            for s in $(out/llvm-readelf -S --wide "$f" | sed -n 's/^ *\[ *[0-9]*\] \([^ ]*\) .*/\1/p'); do
+              out/llvm-objcopy --dump-section "$s=sections/tmp" "$f" /dev/null 2>/dev/null || continue
+              echo "$s $(sha256sum < sections/tmp | cut -c1-16)"
+            done > "sections/$(dirname "$f" | cut -d/ -f1).txt"
+          done
+          diff sections/published.txt sections/out.txt || true
+          diff <(strings -n 8 "$a") <(strings -n 8 "$b") | head -50 || true
+          exit 1
