@@ -1,0 +1,15 @@
+--- a/configure.py
++++ b/configure.py
+@@ -2422,6 +2422,12 @@
+   o['variables']['v8_enable_inspector'] = 0 if disable_inspector else 1
+ 
+ def configure_section_file(o):
++  # No ordering file asked for: gold isn't needed. Say so the same way on every build machine; otherwise
++  # process.config (built into node) carries this setting only where ld.gold happens to be installed.
++  if options.node_section_ordering_info == "":
++    o['variables']['node_section_ordering_info'] = ""
++    return
++
+   try:
+     proc = subprocess.Popen(['ld.gold'] + ['-v'], stdin = subprocess.PIPE,
+                             stdout = subprocess.PIPE, stderr = subprocess.PIPE)
