@@ -5,7 +5,8 @@ emulator), built from Node's official source with the NDK. Node has no official 
 Android build path is experimental and untested upstream.
 
 The releases follow Node on their own: a daily workflow builds every new release of the supported lines and
-publishes it here as `v<node version>`.
+publishes it here as `v<node version>`. `v<node version>-1` is that version built again (its archives keep the
+version's name).
 
 | Supported | Patches | Android |
 | --- | --- | --- |

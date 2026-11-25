@@ -1,0 +1,13 @@
+--- a/configure.py
++++ b/configure.py
+@@ -2105,7 +2105,9 @@
+   files = os.walk(dir_all)
+   for ent in files:
+     (_, _1, files) = ent
+-    for file in files:
++    # Sorted: the disk's own order differs from one machine to the next, and it becomes the order ICU's
++    # objects are linked in.
++    for file in sorted(files):
+       if file.endswith(('.cpp', '.c', '.h')):
+         # srcfile uses "slash" as dir separator as its output is consumed by gyp
+         srcfile = f'{dir_sub}/{file}'

@@ -4,6 +4,8 @@
 # own key.
 #
 # Node embeds one build path (OpenSSL's MODULESDIR, under WORK): the rebuild uses the release workflow's.
+# It builds on an ext4 disk with a hash seed of its own, which lists files in another order than the runner's
+# disk: ICU's sources were once linked in that order.
 # On a difference, the log shows which ELF sections differ, without downloading 90 MB binaries.
 # Actions are pinned by commit (supply-chain safety), with their version in a comment.
 
@@ -13,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Released Node version to rebuild, e.g. 24.22.3"
+        description: "Release to rebuild, e.g. 24.22.3 or 24.22.3-1 (24.22.3 built again)"
         required: true
       arch:
         description: "arm64 or x64"
@@ -34,19 +36,24 @@ jobs:
       - name: The published release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          RELEASE: ${{ inputs.version }}
           ARCH: ${{ inputs.arch }}
         run: |
+          RELEASE=${RELEASE#v} VERSION=${RELEASE%%-*}
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           mkdir published
-          gh release download "v${VERSION#v}" -R "$GITHUB_REPOSITORY" -D published -p "node-v${VERSION#v}-android-$ARCH.tar.xz*"
+          gh release download "v$RELEASE" -R "$GITHUB_REPOSITORY" -D published -p "node-v$VERSION-android-$ARCH.tar.xz*"
           (cd published && sha256sum -c ./*.sha256 && tar -xJf ./*.tar.xz)
       - name: Rebuild in Debian
         env:
-          VERSION: ${{ inputs.version }}
           ARCH: ${{ inputs.arch }}
         run: |
+          truncate -s 30G "$RUNNER_TEMP/disk.img"
+          mkfs.ext4 -q -F -E hash_seed="$(uuidgen)" "$RUNNER_TEMP/disk.img"
+          sudo mkdir /disk && sudo mount -o loop "$RUNNER_TEMP/disk.img" /disk && sudo mkdir /disk/work
           ndk=$(sed -n 's/^NDK_VERSION=//p' build.sh)
-          docker run --rm -v "$PWD:/src" -w /src -e VERSION -e ARCH -e NDK_VERSION="$ndk" debian:trixie bash -euxc '
+          docker run --rm -v "$PWD:/src" -v /disk/work:/home/runner/work/node-android/node-android/work -w /src \
+            -e VERSION -e ARCH -e NDK_VERSION="$ndk" debian:trixie bash -euxc '
             apt-get update
             apt-get install -y --no-install-recommends clang ninja-build python3 gpgv curl ca-certificates \
               xz-utils unzip patch make
@@ -62,13 +69,12 @@ jobs:
               /opt/android-ndk-$release/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objcopy /src/out/
             chmod -R a+rwX /src/out
           '
-          tar -C out -xJf "out/node-v${VERSION#v}-android-$ARCH.tar.xz"
+          tar -C out -xJf "out/node-v$VERSION-android-$ARCH.tar.xz"
       - name: Compare
         env:
-          VERSION: ${{ inputs.version }}
           ARCH: ${{ inputs.arch }}
         run: |
-          name="node-v${VERSION#v}-android-$ARCH"
+          name="node-v$VERSION-android-$ARCH"
           a="published/$name/node" b="out/$name/node"
           sha256sum "$a" "$b"
           if cmp -s "$a" "$b"; then echo "identical: the release rebuilds bit for bit"; exit 0; fi
