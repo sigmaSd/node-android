@@ -1,0 +1,39 @@
+# One-off: v24.22.3-1, from the builds that were compared (arm64: the Ubuntu half of run 45550389519, the
+# same bytes as its Debian half; x64: run 45552515559).
+name: publish
+on:
+  push:
+    branches: [publish]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: node-ubuntu, path: files, run-id: 45550389519, github-token: "${{ github.token }}" }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: node-x64, path: files, run-id: 45552515559, github-token: "${{ github.token }}" }
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -eux
+          V=24.22.3
+          (cd files && for f in *.sha256; do sha256sum -c "$f"; done && ls -l)
+          test "$(tar -xOJf files/node-v$V-android-arm64.tar.xz node-v$V-android-arm64/node | sha256sum | cut -d' ' -f1)" = 06eba41e448b0b536b2f99fc26723486e26fabeb6c140d3e0399092f7d54a35a
+          test "$(ls files | wc -l)" = 4
+          {
+            echo "Node v$V for Android, built again so that it rebuilds bit for bit on another machine: ICU's sources are now linked in the same order whatever disk they are on, and \`process.config\` no longer says whether the build machine had \`ld.gold\`. Otherwise the same as v$V. The arm64 executable was built twice, on Ubuntu and on Debian, with the same result; x64 was built once."
+            echo
+            echo "One self-contained executable per architecture (\`node\` in each archive)."
+            echo
+            echo '```'
+            for arch in arm64 x64; do
+              tar -xOJf "files/node-v$V-android-$arch.tar.xz" "node-v$V-android-$arch/BUILD-INFO"
+              echo
+            done
+            echo '```'
+          } > notes.md
+          gh release create "v$V-1" --target c81a6dd6e32aef8c9222366fb0a6fa1b3e8f1107 --title "Node v$V for Android, rebuilt" --notes-file notes.md files/*
